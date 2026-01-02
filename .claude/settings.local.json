@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__grep__searchGitHub",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(copy \"C:\\\\Users\\\\brams\\\\code_projecten\\\\warehouse_flow_visualization_app\\\\prototype v2\\\\prototype v2.excalidraw\" \"C:\\\\Users\\\\brams\\\\code_projecten\\\\warehouse_flow_visualization_app\\\\prototype v2\\\\public\\\\prototype v2.excalidraw\")",
+      "Bash(npm install)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run dev:*)",
+      "Bash(git --version:*)"
+    ]
+  }
+}
