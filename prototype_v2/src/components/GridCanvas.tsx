@@ -1,10 +1,24 @@
 import { useRef, useEffect, useCallback, MouseEvent } from 'react';
-import { GridData, Pallet, Dock, Point, Area, EditModeState, AreaType } from '../types';
+import {
+  GridData,
+  Pallet,
+  Dock,
+  Point,
+  Area,
+  Actor,
+  ActorType,
+  EditModeState,
+  AreaType,
+  ACTOR_TYPE_CONFIGS,
+} from '../types';
+import { AnimatedActor } from '../hooks/useFlowSimulation';
 
 const CELL_SIZE = 40;
 const PALLET_SIZE = 30;
 const PALLET_OFFSET = (CELL_SIZE - PALLET_SIZE) / 2;
 const COORD_MARGIN = 30; // Space for coordinate labels
+const ACTOR_SIZE = 28;
+const ACTOR_OFFSET = (CELL_SIZE - ACTOR_SIZE) / 2;
 
 // Colors
 const GRID_STROKE = '#ced4da';
@@ -14,6 +28,7 @@ const PALLET_FILL = '#d2bab0';
 const PALLET_STROKE = '#a89080';
 const BACKGROUND = '#ffffff';
 const PATH_STROKE = '#4dabf7';
+const ACTOR_STROKE = '#495057';
 
 interface GridCanvasProps {
   gridData: GridData | null;
@@ -22,8 +37,11 @@ interface GridCanvasProps {
   currentPath: Point[];
   // New props for edit mode
   areas?: Area[];
+  actors?: Actor[];
+  animatedActors?: AnimatedActor[];
   editMode?: EditModeState;
   onCellClick?: (point: Point, areaType: AreaType) => void;
+  onActorClick?: (point: Point, actorType: ActorType) => void;
 }
 
 export function GridCanvas({
@@ -32,8 +50,11 @@ export function GridCanvas({
   docks,
   currentPath,
   areas = [],
+  actors = [],
+  animatedActors = [],
   editMode,
   onCellClick,
+  onActorClick,
 }: GridCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boundsRef = useRef<{ offsetX: number; offsetY: number; bounds: GridData['bounds'] } | null>(null);
@@ -69,15 +90,19 @@ export function GridCanvas({
 
   // Handle canvas click
   const handleClick = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
-    if (!editMode?.isEditMode || editMode.target !== 'areas' || !onCellClick) return;
+    if (!editMode?.isEditMode) return;
 
     const point = screenToGridCell(event.clientX, event.clientY);
-    if (point) {
-      onCellClick(point, editMode.selectedAreaType);
-    }
-  }, [editMode, onCellClick, screenToGridCell]);
+    if (!point) return;
 
-  // Handle mouse drag for painting
+    if (editMode.target === 'areas' && onCellClick) {
+      onCellClick(point, editMode.selectedAreaType);
+    } else if (editMode.target === 'actors' && onActorClick) {
+      onActorClick(point, editMode.selectedActorType);
+    }
+  }, [editMode, onCellClick, onActorClick, screenToGridCell]);
+
+  // Handle mouse drag for painting (areas only - actors are placed one at a time)
   const handleMouseMove = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
     if (!editMode?.isEditMode || editMode.target !== 'areas' || !onCellClick) return;
 
@@ -201,6 +226,127 @@ export function GridCanvas({
       ctx.lineWidth = 1;
     }
 
+    // Get IDs of actors that are being animated (to skip static rendering)
+    const animatedActorIds = new Set(animatedActors.map((a) => a.id));
+
+    // Draw static actors (new architecture) - skip those being animated
+    actors.filter((a) => !animatedActorIds.has(a.id)).forEach((actor) => {
+      const config = ACTOR_TYPE_CONFIGS.find((c) => c.type === actor.type);
+      const x = actor.startPosition.x + offsetX + ACTOR_OFFSET;
+      const y = actor.startPosition.y + offsetY + ACTOR_OFFSET;
+
+      ctx.fillStyle = actor.color;
+      ctx.strokeStyle = ACTOR_STROKE;
+      ctx.lineWidth = 2;
+
+      switch (config?.shape) {
+        case 'circle':
+          // Draw circle (picker)
+          ctx.beginPath();
+          ctx.arc(x + ACTOR_SIZE / 2, y + ACTOR_SIZE / 2, ACTOR_SIZE / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          break;
+        case 'rounded':
+          // Draw rounded rectangle (cart)
+          const radius = 8;
+          ctx.beginPath();
+          ctx.moveTo(x + radius, y);
+          ctx.lineTo(x + ACTOR_SIZE - radius, y);
+          ctx.quadraticCurveTo(x + ACTOR_SIZE, y, x + ACTOR_SIZE, y + radius);
+          ctx.lineTo(x + ACTOR_SIZE, y + ACTOR_SIZE - radius);
+          ctx.quadraticCurveTo(x + ACTOR_SIZE, y + ACTOR_SIZE, x + ACTOR_SIZE - radius, y + ACTOR_SIZE);
+          ctx.lineTo(x + radius, y + ACTOR_SIZE);
+          ctx.quadraticCurveTo(x, y + ACTOR_SIZE, x, y + ACTOR_SIZE - radius);
+          ctx.lineTo(x, y + radius);
+          ctx.quadraticCurveTo(x, y, x + radius, y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          break;
+        case 'square':
+        default:
+          // Draw square (pallet, forklift, custom)
+          ctx.fillRect(x, y, ACTOR_SIZE, ACTOR_SIZE);
+          ctx.strokeRect(x, y, ACTOR_SIZE, ACTOR_SIZE);
+
+          // Add arrow for forklift to indicate direction
+          if (actor.type === 'forklift') {
+            ctx.fillStyle = ACTOR_STROKE;
+            ctx.beginPath();
+            const arrowX = x + ACTOR_SIZE / 2;
+            const arrowY = y + 4;
+            ctx.moveTo(arrowX, arrowY);
+            ctx.lineTo(arrowX - 6, arrowY + 8);
+            ctx.lineTo(arrowX + 6, arrowY + 8);
+            ctx.closePath();
+            ctx.fill();
+          }
+          break;
+      }
+
+      // Draw label if present
+      if (actor.label) {
+        ctx.fillStyle = '#333';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(actor.label, x + ACTOR_SIZE / 2, y + ACTOR_SIZE + 2);
+      }
+    });
+
+    // Draw animated actors (flow simulation)
+    animatedActors.forEach((actor) => {
+      const config = ACTOR_TYPE_CONFIGS.find((c) => c.type === actor.type);
+      const x = actor.currentX + offsetX + ACTOR_OFFSET;
+      const y = actor.currentY + offsetY + ACTOR_OFFSET;
+
+      ctx.fillStyle = actor.color;
+      ctx.strokeStyle = ACTOR_STROKE;
+      ctx.lineWidth = 2;
+
+      switch (config?.shape) {
+        case 'circle':
+          ctx.beginPath();
+          ctx.arc(x + ACTOR_SIZE / 2, y + ACTOR_SIZE / 2, ACTOR_SIZE / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          break;
+        case 'rounded':
+          const radius = 8;
+          ctx.beginPath();
+          ctx.moveTo(x + radius, y);
+          ctx.lineTo(x + ACTOR_SIZE - radius, y);
+          ctx.quadraticCurveTo(x + ACTOR_SIZE, y, x + ACTOR_SIZE, y + radius);
+          ctx.lineTo(x + ACTOR_SIZE, y + ACTOR_SIZE - radius);
+          ctx.quadraticCurveTo(x + ACTOR_SIZE, y + ACTOR_SIZE, x + ACTOR_SIZE - radius, y + ACTOR_SIZE);
+          ctx.lineTo(x + radius, y + ACTOR_SIZE);
+          ctx.quadraticCurveTo(x, y + ACTOR_SIZE, x, y + ACTOR_SIZE - radius);
+          ctx.lineTo(x, y + radius);
+          ctx.quadraticCurveTo(x, y, x + radius, y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          break;
+        case 'square':
+        default:
+          ctx.fillRect(x, y, ACTOR_SIZE, ACTOR_SIZE);
+          ctx.strokeRect(x, y, ACTOR_SIZE, ACTOR_SIZE);
+          if (actor.type === 'forklift') {
+            ctx.fillStyle = ACTOR_STROKE;
+            ctx.beginPath();
+            const arrowX = x + ACTOR_SIZE / 2;
+            const arrowY = y + 4;
+            ctx.moveTo(arrowX, arrowY);
+            ctx.lineTo(arrowX - 6, arrowY + 8);
+            ctx.lineTo(arrowX + 6, arrowY + 8);
+            ctx.closePath();
+            ctx.fill();
+          }
+          break;
+      }
+    });
+
     // Draw pallets that haven't moved yet (at their start positions)
     gridData.pallets.forEach((cell) => {
       // Only draw if this pallet is not in our active pallets list
@@ -242,12 +388,12 @@ export function GridCanvas({
     });
 
     // Draw edit mode indicator (cursor highlight)
-    if (editMode?.isEditMode && editMode.target === 'areas') {
+    if (editMode?.isEditMode && (editMode.target === 'areas' || editMode.target === 'actors')) {
       canvas.style.cursor = 'crosshair';
     } else {
       canvas.style.cursor = 'default';
     }
-  }, [gridData, pallets, docks, currentPath, areas, editMode]);
+  }, [gridData, pallets, docks, currentPath, areas, actors, animatedActors, editMode]);
 
   return (
     <canvas

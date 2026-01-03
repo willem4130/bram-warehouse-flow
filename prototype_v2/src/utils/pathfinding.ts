@@ -122,3 +122,90 @@ export function shuffleArray<T>(array: T[]): T[] {
   }
   return result;
 }
+
+// =============================================================================
+// AUTO-ASSIGNMENT FUNCTIONS (Phase 1B)
+// =============================================================================
+
+export interface Assignment {
+  actorId: string;
+  actorPosition: Point;
+  destinationCell: Point;
+  distance: number;
+}
+
+/**
+ * Assign actors to destination cells using nearest-neighbor algorithm
+ * Each actor is matched to its closest unassigned destination cell
+ */
+export function autoAssignActorsToDestinations(
+  actorPositions: { id: string; position: Point }[],
+  destinationCells: Point[]
+): Assignment[] {
+  if (actorPositions.length === 0 || destinationCells.length === 0) {
+    return [];
+  }
+
+  const assignments: Assignment[] = [];
+  const availableDestinations = [...destinationCells];
+  const unassignedActors = [...actorPositions];
+
+  // Greedy nearest-neighbor: assign each actor to closest available destination
+  while (unassignedActors.length > 0 && availableDestinations.length > 0) {
+    let bestAssignment: {
+      actorIndex: number;
+      destIndex: number;
+      distance: number;
+    } | null = null;
+
+    // Find the actor-destination pair with minimum distance
+    for (let actorIdx = 0; actorIdx < unassignedActors.length; actorIdx++) {
+      const actor = unassignedActors[actorIdx];
+      for (let destIdx = 0; destIdx < availableDestinations.length; destIdx++) {
+        const dest = availableDestinations[destIdx];
+        const distance = manhattanDistance(actor.position, dest);
+
+        if (!bestAssignment || distance < bestAssignment.distance) {
+          bestAssignment = { actorIndex: actorIdx, destIndex: destIdx, distance };
+        }
+      }
+    }
+
+    if (bestAssignment) {
+      const actor = unassignedActors[bestAssignment.actorIndex];
+      const dest = availableDestinations[bestAssignment.destIndex];
+
+      assignments.push({
+        actorId: actor.id,
+        actorPosition: actor.position,
+        destinationCell: dest,
+        distance: bestAssignment.distance,
+      });
+
+      // Remove assigned actor and destination
+      unassignedActors.splice(bestAssignment.actorIndex, 1);
+      availableDestinations.splice(bestAssignment.destIndex, 1);
+    }
+  }
+
+  return assignments;
+}
+
+/**
+ * Sort assignments by distance (shortest first) for animation order
+ */
+export function sortAssignmentsByDistance(assignments: Assignment[]): Assignment[] {
+  return [...assignments].sort((a, b) => a.distance - b.distance);
+}
+
+/**
+ * Generate all paths for assignments
+ */
+export function generatePathsForAssignments(
+  assignments: Assignment[]
+): { actorId: string; path: Point[] }[] {
+  return assignments.map((assignment) => ({
+    actorId: assignment.actorId,
+    path: generatePath(assignment.actorPosition, assignment.destinationCell),
+  }));
+}
