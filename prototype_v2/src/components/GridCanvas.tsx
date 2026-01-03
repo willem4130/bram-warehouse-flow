@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react';
-import { GridData, Pallet, Dock } from '../types';
+import { GridData, Pallet, Dock, Point } from '../types';
 
 const CELL_SIZE = 40;
 const PALLET_SIZE = 30;
@@ -13,14 +13,16 @@ const DOCK_FILL = '#e9ecef';
 const PALLET_FILL = '#d2bab0';
 const PALLET_STROKE = '#a89080';
 const BACKGROUND = '#ffffff';
+const PATH_STROKE = '#4dabf7';
 
 interface GridCanvasProps {
   gridData: GridData | null;
   pallets: Pallet[];
   docks: Dock[];
+  currentPath: Point[];
 }
 
-export function GridCanvas({ gridData, pallets, docks }: GridCanvasProps) {
+export function GridCanvas({ gridData, pallets, docks, currentPath }: GridCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -92,6 +94,33 @@ export function GridCanvas({ gridData, pallets, docks }: GridCanvasProps) {
       ctx.strokeRect(dock.x + offsetX, dock.y + offsetY, CELL_SIZE, CELL_SIZE);
     });
 
+    // Draw current path
+    if (currentPath.length >= 2) {
+      ctx.strokeStyle = PATH_STROKE;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 4]);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      ctx.beginPath();
+      const centerOffset = CELL_SIZE / 2;
+      ctx.moveTo(
+        currentPath[0].x + offsetX + centerOffset,
+        currentPath[0].y + offsetY + centerOffset
+      );
+      for (let i = 1; i < currentPath.length; i++) {
+        ctx.lineTo(
+          currentPath[i].x + offsetX + centerOffset,
+          currentPath[i].y + offsetY + centerOffset
+        );
+      }
+      ctx.stroke();
+
+      // Reset line style
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+    }
+
     // Draw pallets that haven't moved yet (at their start positions)
     gridData.pallets.forEach((cell) => {
       // Only draw if this pallet is not in our active pallets list
@@ -131,7 +160,7 @@ export function GridCanvas({ gridData, pallets, docks }: GridCanvasProps) {
         PALLET_SIZE
       );
     });
-  }, [gridData, pallets, docks]);
+  }, [gridData, pallets, docks, currentPath]);
 
   return (
     <canvas

@@ -3,7 +3,7 @@ export interface Point {
   y: number;
 }
 
-const SPEED = 200; // pixels per second
+const BASE_SPEED = 200; // pixels per second at 1x speed
 
 /**
  * Calculate Manhattan distance between two points
@@ -103,10 +103,12 @@ export function getPathLength(path: Point[]): number {
 
 /**
  * Calculate duration for path based on speed
+ * @param speedMultiplier - Speed multiplier (1 = normal, 2 = 2x faster, etc.)
  */
-export function getPathDuration(path: Point[]): number {
+export function getPathDuration(path: Point[], speedMultiplier: number = 1): number {
   const length = getPathLength(path);
-  return (length / SPEED) * 1000; // milliseconds
+  const effectiveSpeed = BASE_SPEED * speedMultiplier;
+  return (length / effectiveSpeed) * 1000; // milliseconds
 }
 
 /**

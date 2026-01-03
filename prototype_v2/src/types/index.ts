@@ -21,6 +21,11 @@ export interface Dock {
   isFilled: boolean;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
 export interface SimulationState {
   isRunning: boolean;
   isPaused: boolean;
@@ -29,6 +34,7 @@ export interface SimulationState {
   pallets: Pallet[];
   docks: Dock[];
   currentPalletIndex: number;
+  currentPath: Point[];
 }
 
 export interface GridData {

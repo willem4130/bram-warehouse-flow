@@ -17,7 +17,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const { state, start, stop } = useSimulation(gridData);
+  const { state, speed, start, stop, reset, setSpeed } = useSimulation(gridData);
 
   useEffect(() => {
     loadExcalidrawFile('/prototype v2.excalidraw')
@@ -64,6 +64,7 @@ function App() {
           gridData={gridData}
           pallets={state.pallets}
           docks={state.docks}
+          currentPath={state.currentPath}
         />
       </main>
 
@@ -71,8 +72,12 @@ function App() {
         <Controls
           isRunning={state.isRunning}
           isComplete={state.isComplete}
+          isPaused={state.isPaused}
+          speed={speed}
           onStart={start}
           onStop={stop}
+          onReset={reset}
+          onSpeedChange={setSpeed}
         />
       </footer>
     </div>

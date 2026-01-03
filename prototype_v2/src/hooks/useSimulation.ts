@@ -11,9 +11,11 @@ const NUM_PALLETS_TO_MOVE = 15;
 
 interface UseSimulationResult {
   state: SimulationState;
+  speed: number;
   start: () => void;
   stop: () => void;
   reset: () => void;
+  setSpeed: (speed: number) => void;
 }
 
 export function useSimulation(gridData: GridData | null): UseSimulationResult {
@@ -25,7 +27,9 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
     pallets: [],
     docks: [],
     currentPalletIndex: 0,
+    currentPath: [],
   });
+  const [speed, setSpeed] = useState(1);
 
   // Use refs for animation state to avoid re-renders during animation
   const animationFrameRef = useRef<number | null>(null);
@@ -38,7 +42,13 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
   const palletsRef = useRef<Pallet[]>([]);
   const docksRef = useRef<Dock[]>([]);
   const lastRenderTimeRef = useRef<number>(0);
+  const speedRef = useRef(1);
   const RENDER_INTERVAL = 33; // ~30fps for React state updates
+
+  // Keep speedRef in sync with speed state
+  useEffect(() => {
+    speedRef.current = speed;
+  }, [speed]);
 
   // Initialize pallets and docks from grid data
   useEffect(() => {
@@ -74,6 +84,7 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
     palletsRef.current = pallets;
     docksRef.current = docks;
     currentPalletIndexRef.current = 0;
+    currentPathRef.current = [];
 
     setState({
       isRunning: false,
@@ -83,6 +94,7 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
       pallets,
       docks,
       currentPalletIndex: 0,
+      currentPath: [],
     });
   }, [gridData]);
 
@@ -105,6 +117,7 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
     // Check if all pallets have arrived
     if (currentIndex >= pallets.length) {
       isRunningRef.current = false;
+      currentPathRef.current = [];
       setState({
         isRunning: false,
         isPaused: false,
@@ -113,6 +126,7 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
         pallets: [...pallets],
         docks: [...docks],
         currentPalletIndex: currentIndex,
+        currentPath: [],
       });
       return;
     }
@@ -127,7 +141,7 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
         { x: targetDock.x, y: targetDock.y }
       );
       currentPathRef.current = path;
-      pathDurationRef.current = getPathDuration(path);
+      pathDurationRef.current = getPathDuration(path, speedRef.current);
       palletStartTimeRef.current = timestamp;
 
       pallets[currentIndex] = {
@@ -179,6 +193,7 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
         pallets: [...pallets],
         docks: [...docks],
         currentPalletIndex: currentPalletIndexRef.current,
+        currentPath: [...currentPathRef.current],
       });
     }
 
@@ -266,6 +281,7 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
     palletsRef.current = pallets;
     docksRef.current = docks;
     currentPalletIndexRef.current = 0;
+    currentPathRef.current = [];
 
     setState({
       isRunning: false,
@@ -275,6 +291,7 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
       pallets,
       docks,
       currentPalletIndex: 0,
+      currentPath: [],
     });
   }, [gridData]);
 
@@ -288,5 +305,5 @@ export function useSimulation(gridData: GridData | null): UseSimulationResult {
     };
   }, []);
 
-  return { state, start, stop, reset };
+  return { state, speed, start, stop, reset, setSpeed };
 }
