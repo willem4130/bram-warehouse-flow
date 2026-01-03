@@ -21,6 +21,16 @@ interface ControlsProps {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  // Clear controls (optional)
+  onClearAllActors?: () => void;
+  onClearAllAreas?: () => void;
+  onClearActorsByType?: (type: ActorType) => void;
+  onClearAreasByType?: (type: AreaType) => void;
+  onClearEverything?: () => void;
+  actorCount?: number;
+  areaCount?: number;
+  actorCountByType?: Record<ActorType, number>;
+  areaCountByType?: Record<AreaType, number>;
 }
 
 // Button styles
@@ -62,6 +72,15 @@ export function Controls({
   canRedo = false,
   onUndo,
   onRedo,
+  onClearAllActors,
+  onClearAllAreas,
+  onClearActorsByType,
+  onClearAreasByType,
+  onClearEverything,
+  actorCount = 0,
+  areaCount = 0,
+  actorCountByType = { pallet: 0, forklift: 0, picker: 0, cart: 0, custom: 0 },
+  areaCountByType = { dock: 0, staging: 0, storage: 0, picking: 0, packing: 0, obstacle: 0, empty: 0, custom: 0 },
 }: ControlsProps) {
   const canReset = !isRunning && (isPaused || isComplete);
   const isEditMode = editMode?.isEditMode ?? false;
@@ -121,7 +140,7 @@ export function Controls({
               </>
             )}
 
-            {/* Undo/Redo buttons */}
+            {/* Undo/Redo/Clear Everything buttons */}
             {isEditMode && onUndo && onRedo && (
               <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>
                 <button
@@ -140,6 +159,22 @@ export function Controls({
                 >
                   ↪ Redo
                 </button>
+                {onClearEverything && (
+                  <button
+                    onClick={() => {
+                      console.log('Clear Everything button clicked!');
+                      onClearEverything();
+                    }}
+                    disabled={actorCount === 0 && areaCount === 0}
+                    title="Clear everything (all areas and actors)"
+                    style={{
+                      ...smallButtonStyle(actorCount > 0 || areaCount > 0, '#dc3545'),
+                      marginLeft: '8px',
+                    }}
+                  >
+                    Clear Everything
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -178,6 +213,34 @@ export function Controls({
                         '#ffffff',
                     }}
                   />
+                  {/* Clear buttons for areas */}
+                  <div style={{ display: 'flex', gap: '4px', marginLeft: '12px' }}>
+                    {/* Clear selected type */}
+                    {onClearAreasByType && editMode?.selectedAreaType && (
+                      <button
+                        onClick={() => onClearAreasByType(editMode.selectedAreaType)}
+                        disabled={(areaCountByType[editMode.selectedAreaType] ?? 0) === 0}
+                        title={`Clear all ${editMode.selectedAreaType} cells`}
+                        style={smallButtonStyle((areaCountByType[editMode.selectedAreaType] ?? 0) > 0, '#e67700')}
+                      >
+                        Clear {editMode.selectedAreaType} ({areaCountByType[editMode.selectedAreaType] ?? 0})
+                      </button>
+                    )}
+                    {/* Clear all areas */}
+                    {onClearAllAreas && (
+                      <button
+                        onClick={() => {
+                          console.log('Clear All Areas button clicked!');
+                          onClearAllAreas();
+                        }}
+                        disabled={areaCount === 0}
+                        title="Clear all areas"
+                        style={smallButtonStyle(areaCount > 0, '#dc3545')}
+                      >
+                        Clear All Areas ({areaCount})
+                      </button>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -212,6 +275,31 @@ export function Controls({
                         '#d2bab0',
                     }}
                   />
+                  {/* Clear buttons for actors */}
+                  <div style={{ display: 'flex', gap: '4px', marginLeft: '12px' }}>
+                    {/* Clear selected type */}
+                    {onClearActorsByType && editMode?.selectedActorType && (
+                      <button
+                        onClick={() => onClearActorsByType(editMode.selectedActorType)}
+                        disabled={(actorCountByType[editMode.selectedActorType] ?? 0) === 0}
+                        title={`Clear all ${editMode.selectedActorType}s`}
+                        style={smallButtonStyle((actorCountByType[editMode.selectedActorType] ?? 0) > 0, '#e67700')}
+                      >
+                        Clear {editMode.selectedActorType}s ({actorCountByType[editMode.selectedActorType] ?? 0})
+                      </button>
+                    )}
+                    {/* Clear all actors */}
+                    {onClearAllActors && (
+                      <button
+                        onClick={onClearAllActors}
+                        disabled={actorCount === 0}
+                        title="Clear all actors"
+                        style={smallButtonStyle(actorCount > 0, '#dc3545')}
+                      >
+                        Clear All Actors ({actorCount})
+                      </button>
+                    )}
+                  </div>
                   <span style={{ fontSize: '12px', color: '#868e96' }}>
                     Click to place, click again to remove
                   </span>

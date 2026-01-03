@@ -167,30 +167,29 @@ export function GridCanvas({
       ctx.fillText((i + 1).toString(), x, y);
     }
 
-    // Draw empty cells (grid lines)
+    // Always draw the full grid structure (lines) based on bounds
+    // This ensures the grid is visible regardless of areas
     ctx.strokeStyle = GRID_STROKE;
     ctx.lineWidth = 1;
-    gridData.emptyCells.forEach((cell) => {
-      ctx.strokeRect(
-        cell.x + offsetX,
-        cell.y + offsetY,
-        CELL_SIZE,
-        CELL_SIZE
-      );
+    for (let gx = bounds.minX; gx < bounds.maxX; gx += CELL_SIZE) {
+      for (let gy = bounds.minY; gy < bounds.maxY; gy += CELL_SIZE) {
+        ctx.strokeRect(gx + offsetX, gy + offsetY, CELL_SIZE, CELL_SIZE);
+      }
+    }
+
+    // Draw areas with their colors (on top of grid lines)
+    areas.forEach((area) => {
+      ctx.fillStyle = area.color;
+      area.cells.forEach((cell) => {
+        ctx.fillRect(cell.x + offsetX, cell.y + offsetY, CELL_SIZE, CELL_SIZE);
+        ctx.strokeStyle = GRID_STROKE;
+        ctx.strokeRect(cell.x + offsetX, cell.y + offsetY, CELL_SIZE, CELL_SIZE);
+      });
     });
 
-    // Draw areas with their colors (new architecture)
-    if (areas.length > 0) {
-      areas.forEach((area) => {
-        ctx.fillStyle = area.color;
-        area.cells.forEach((cell) => {
-          ctx.fillRect(cell.x + offsetX, cell.y + offsetY, CELL_SIZE, CELL_SIZE);
-          ctx.strokeStyle = GRID_STROKE;
-          ctx.strokeRect(cell.x + offsetX, cell.y + offsetY, CELL_SIZE, CELL_SIZE);
-        });
-      });
-    } else {
-      // Fallback: Draw docks using legacy system (grey background)
+    // Legacy dock rendering only when NOT in edit mode and no areas exist
+    // (for initial backward compatibility, but edit mode uses areas system)
+    if (!editMode?.isEditMode && areas.length === 0) {
       docks.forEach((dock) => {
         ctx.fillStyle = DOCK_FILL;
         ctx.fillRect(dock.x + offsetX, dock.y + offsetY, CELL_SIZE, CELL_SIZE);
@@ -347,45 +346,48 @@ export function GridCanvas({
       }
     });
 
-    // Draw pallets that haven't moved yet (at their start positions)
-    gridData.pallets.forEach((cell) => {
-      // Only draw if this pallet is not in our active pallets list
-      const activePallet = pallets.find((p) => p.startX === cell.x && p.startY === cell.y);
-      if (activePallet) return; // Will be drawn as moving pallet
+    // Draw legacy pallets only when NOT in edit mode (legacy system for playback)
+    if (!editMode?.isEditMode) {
+      // Draw pallets that haven't moved yet (at their start positions)
+      gridData.pallets.forEach((cell) => {
+        // Only draw if this pallet is not in our active pallets list
+        const activePallet = pallets.find((p) => p.startX === cell.x && p.startY === cell.y);
+        if (activePallet) return; // Will be drawn as moving pallet
 
-      ctx.fillStyle = PALLET_FILL;
-      ctx.fillRect(
-        cell.x + offsetX + PALLET_OFFSET,
-        cell.y + offsetY + PALLET_OFFSET,
-        PALLET_SIZE,
-        PALLET_SIZE
-      );
-      ctx.strokeStyle = PALLET_STROKE;
-      ctx.strokeRect(
-        cell.x + offsetX + PALLET_OFFSET,
-        cell.y + offsetY + PALLET_OFFSET,
-        PALLET_SIZE,
-        PALLET_SIZE
-      );
-    });
+        ctx.fillStyle = PALLET_FILL;
+        ctx.fillRect(
+          cell.x + offsetX + PALLET_OFFSET,
+          cell.y + offsetY + PALLET_OFFSET,
+          PALLET_SIZE,
+          PALLET_SIZE
+        );
+        ctx.strokeStyle = PALLET_STROKE;
+        ctx.strokeRect(
+          cell.x + offsetX + PALLET_OFFSET,
+          cell.y + offsetY + PALLET_OFFSET,
+          PALLET_SIZE,
+          PALLET_SIZE
+        );
+      });
 
-    // Draw active/moving pallets
-    pallets.forEach((pallet) => {
-      ctx.fillStyle = PALLET_FILL;
-      ctx.fillRect(
-        pallet.x + offsetX + PALLET_OFFSET,
-        pallet.y + offsetY + PALLET_OFFSET,
-        PALLET_SIZE,
-        PALLET_SIZE
-      );
-      ctx.strokeStyle = PALLET_STROKE;
-      ctx.strokeRect(
-        pallet.x + offsetX + PALLET_OFFSET,
-        pallet.y + offsetY + PALLET_OFFSET,
-        PALLET_SIZE,
-        PALLET_SIZE
-      );
-    });
+      // Draw active/moving pallets
+      pallets.forEach((pallet) => {
+        ctx.fillStyle = PALLET_FILL;
+        ctx.fillRect(
+          pallet.x + offsetX + PALLET_OFFSET,
+          pallet.y + offsetY + PALLET_OFFSET,
+          PALLET_SIZE,
+          PALLET_SIZE
+        );
+        ctx.strokeStyle = PALLET_STROKE;
+        ctx.strokeRect(
+          pallet.x + offsetX + PALLET_OFFSET,
+          pallet.y + offsetY + PALLET_OFFSET,
+          PALLET_SIZE,
+          PALLET_SIZE
+        );
+      });
+    }
 
     // Draw edit mode indicator (cursor highlight)
     if (editMode?.isEditMode && (editMode.target === 'areas' || editMode.target === 'actors')) {

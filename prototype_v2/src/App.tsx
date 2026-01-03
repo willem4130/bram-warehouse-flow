@@ -68,9 +68,10 @@ function App() {
         console.log('Areas:', scenarioData.areas.length);
         console.log('Actors:', scenarioData.actors.length);
         setAreas(scenarioData.areas);
+        setActors(scenarioData.actors); // Load pallets/actors from Excalidraw
 
         // Initialize history with current state
-        history.reset(createHistoryState(scenarioData.areas, [], [], []));
+        history.reset(createHistoryState(scenarioData.areas, scenarioData.actors, [], []));
 
         setLoading(false);
       } catch (err) {
@@ -169,6 +170,78 @@ function App() {
     }
   }, [history]);
 
+  // Clear all actors
+  const handleClearAllActors = useCallback(() => {
+    console.log('handleClearAllActors called, actors:', actors.length);
+    if (actors.length === 0) return;
+
+    // Push to history before clearing
+    history.pushState(
+      createHistoryState(areas, [], [], []),
+      `Clear all actors (${actors.length})`
+    );
+    setActors([]);
+  }, [history, areas, actors.length]);
+
+  // Clear all areas
+  const handleClearAllAreas = useCallback(() => {
+    console.log('handleClearAllAreas called, areas:', areas.length, 'cells:', areas.reduce((sum, area) => sum + area.cells.length, 0));
+    // Count total cells across all areas
+    const totalCells = areas.reduce((sum, area) => sum + area.cells.length, 0);
+    if (totalCells === 0) return;
+
+    // Push to history before clearing
+    history.pushState(
+      createHistoryState([], actors, [], []),
+      `Clear all areas (${totalCells} cells)`
+    );
+    setAreas([]);
+  }, [history, actors, areas]);
+
+  // Clear actors by type
+  const handleClearActorsByType = useCallback((type: ActorType) => {
+    const actorsOfType = actors.filter((a) => a.type === type);
+    if (actorsOfType.length === 0) return;
+
+    const remainingActors = actors.filter((a) => a.type !== type);
+    history.pushState(
+      createHistoryState(areas, remainingActors, [], []),
+      `Clear all ${type}s (${actorsOfType.length})`
+    );
+    setActors(remainingActors);
+  }, [history, areas, actors]);
+
+  // Clear areas by type
+  const handleClearAreasByType = useCallback((type: AreaType) => {
+    console.log('handleClearAreasByType called, type:', type);
+    const areaOfType = areas.find((a) => a.type === type);
+    if (!areaOfType || areaOfType.cells.length === 0) return;
+
+    // Clear cells from this area type
+    const updatedAreas = areas.map((a) =>
+      a.type === type ? { ...a, cells: [] } : a
+    );
+    history.pushState(
+      createHistoryState(updatedAreas, actors, [], []),
+      `Clear all ${type} cells (${areaOfType.cells.length})`
+    );
+    setAreas(updatedAreas);
+  }, [history, actors, areas]);
+
+  // Clear everything (all areas and actors)
+  const handleClearEverything = useCallback(() => {
+    const totalCells = areas.reduce((sum, area) => sum + area.cells.length, 0);
+    console.log('handleClearEverything called, actors:', actors.length, 'cells:', totalCells);
+    if (actors.length === 0 && totalCells === 0) return;
+
+    history.pushState(
+      createHistoryState([], [], [], []),
+      `Clear everything (${actors.length} actors, ${totalCells} cells)`
+    );
+    setAreas([]);
+    setActors([]);
+  }, [history, areas, actors]);
+
   // Create a new flow
   const handleCreateFlow = useCallback((flow: Flow) => {
     setFlows((prevFlows) => [...prevFlows, flow]);
@@ -179,7 +252,7 @@ function App() {
     setFlows((prevFlows) => prevFlows.filter((f) => f.id !== flowId));
   }, []);
 
-  // Keyboard shortcuts for undo/redo
+  // Keyboard shortcuts for undo/redo/delete
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!editMode.isEditMode) return;
@@ -201,11 +274,25 @@ function App() {
         e.preventDefault();
         handleRedo();
       }
+
+      // Delete or Backspace = Clear all (based on current target)
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Don't interfere with text input
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+          return;
+        }
+        e.preventDefault();
+        if (editMode.target === 'actors') {
+          handleClearAllActors();
+        } else {
+          handleClearAllAreas();
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editMode.isEditMode, handleUndo, handleRedo]);
+  }, [editMode.isEditMode, editMode.target, handleUndo, handleRedo, handleClearAllActors, handleClearAllAreas]);
 
   if (loading) {
     return <div className="app loading">Loading grid...</div>;
@@ -313,6 +400,30 @@ function App() {
           canRedo={history.canRedo}
           onUndo={handleUndo}
           onRedo={handleRedo}
+          onClearAllActors={handleClearAllActors}
+          onClearAllAreas={handleClearAllAreas}
+          onClearActorsByType={handleClearActorsByType}
+          onClearAreasByType={handleClearAreasByType}
+          onClearEverything={handleClearEverything}
+          actorCount={actors.length}
+          areaCount={areas.reduce((sum, area) => sum + area.cells.length, 0)}
+          actorCountByType={{
+            pallet: actors.filter((a) => a.type === 'pallet').length,
+            forklift: actors.filter((a) => a.type === 'forklift').length,
+            picker: actors.filter((a) => a.type === 'picker').length,
+            cart: actors.filter((a) => a.type === 'cart').length,
+            custom: actors.filter((a) => a.type === 'custom').length,
+          }}
+          areaCountByType={{
+            dock: areas.find((a) => a.type === 'dock')?.cells.length ?? 0,
+            staging: areas.find((a) => a.type === 'staging')?.cells.length ?? 0,
+            storage: areas.find((a) => a.type === 'storage')?.cells.length ?? 0,
+            picking: areas.find((a) => a.type === 'picking')?.cells.length ?? 0,
+            packing: areas.find((a) => a.type === 'packing')?.cells.length ?? 0,
+            obstacle: areas.find((a) => a.type === 'obstacle')?.cells.length ?? 0,
+            empty: areas.find((a) => a.type === 'empty')?.cells.length ?? 0,
+            custom: areas.find((a) => a.type === 'custom')?.cells.length ?? 0,
+          }}
         />
       </footer>
     </div>
