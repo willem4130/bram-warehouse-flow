@@ -1,5 +1,5 @@
-import { useRef, useEffect } from 'react';
-import { GridData, Pallet, Dock, Point } from '../types';
+import { useRef, useEffect, useCallback, MouseEvent } from 'react';
+import { GridData, Pallet, Dock, Point, Area, EditModeState, AreaType } from '../types';
 
 const CELL_SIZE = 40;
 const PALLET_SIZE = 30;
@@ -20,10 +20,75 @@ interface GridCanvasProps {
   pallets: Pallet[];
   docks: Dock[];
   currentPath: Point[];
+  // New props for edit mode
+  areas?: Area[];
+  editMode?: EditModeState;
+  onCellClick?: (point: Point, areaType: AreaType) => void;
 }
 
-export function GridCanvas({ gridData, pallets, docks, currentPath }: GridCanvasProps) {
+export function GridCanvas({
+  gridData,
+  pallets,
+  docks,
+  currentPath,
+  areas = [],
+  editMode,
+  onCellClick,
+}: GridCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const boundsRef = useRef<{ offsetX: number; offsetY: number; bounds: GridData['bounds'] } | null>(null);
+
+  // Convert screen coordinates to grid cell
+  const screenToGridCell = useCallback((clientX: number, clientY: number): Point | null => {
+    const canvas = canvasRef.current;
+    if (!canvas || !boundsRef.current) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    const { offsetX, offsetY, bounds } = boundsRef.current;
+
+    // Convert canvas position to grid coordinate space
+    const rawX = x - offsetX;
+    const rawY = y - offsetY;
+
+    // Calculate cell index relative to grid origin, then convert back to grid position
+    const cellIndexX = Math.floor((rawX - bounds.minX) / CELL_SIZE);
+    const cellIndexY = Math.floor((rawY - bounds.minY) / CELL_SIZE);
+    const gridX = bounds.minX + cellIndexX * CELL_SIZE;
+    const gridY = bounds.minY + cellIndexY * CELL_SIZE;
+
+    // Check if within grid bounds
+    if (gridX < bounds.minX || gridX >= bounds.maxX || gridY < bounds.minY || gridY >= bounds.maxY) {
+      return null;
+    }
+
+    return { x: gridX, y: gridY };
+  }, []);
+
+  // Handle canvas click
+  const handleClick = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
+    if (!editMode?.isEditMode || editMode.target !== 'areas' || !onCellClick) return;
+
+    const point = screenToGridCell(event.clientX, event.clientY);
+    if (point) {
+      onCellClick(point, editMode.selectedAreaType);
+    }
+  }, [editMode, onCellClick, screenToGridCell]);
+
+  // Handle mouse drag for painting
+  const handleMouseMove = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
+    if (!editMode?.isEditMode || editMode.target !== 'areas' || !onCellClick) return;
+
+    // Only paint if mouse button is pressed
+    if (event.buttons !== 1) return;
+
+    const point = screenToGridCell(event.clientX, event.clientY);
+    if (point) {
+      onCellClick(point, editMode.selectedAreaType);
+    }
+  }, [editMode, onCellClick, screenToGridCell]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -48,6 +113,9 @@ export function GridCanvas({ gridData, pallets, docks, currentPath }: GridCanvas
     // Offset for drawing (translate grid to start at padding + margin for labels)
     const offsetX = padding - bounds.minX + COORD_MARGIN;
     const offsetY = padding - bounds.minY + COORD_MARGIN;
+
+    // Store bounds for click handling
+    boundsRef.current = { offsetX, offsetY, bounds };
 
     // Calculate grid dimensions in cells
     const gridWidthCells = Math.round((bounds.maxX - bounds.minX) / CELL_SIZE);
@@ -74,7 +142,7 @@ export function GridCanvas({ gridData, pallets, docks, currentPath }: GridCanvas
       ctx.fillText((i + 1).toString(), x, y);
     }
 
-    // Draw empty cells
+    // Draw empty cells (grid lines)
     ctx.strokeStyle = GRID_STROKE;
     ctx.lineWidth = 1;
     gridData.emptyCells.forEach((cell) => {
@@ -86,13 +154,25 @@ export function GridCanvas({ gridData, pallets, docks, currentPath }: GridCanvas
       );
     });
 
-    // Draw docks (grey background)
-    docks.forEach((dock) => {
-      ctx.fillStyle = DOCK_FILL;
-      ctx.fillRect(dock.x + offsetX, dock.y + offsetY, CELL_SIZE, CELL_SIZE);
-      ctx.strokeStyle = GRID_STROKE;
-      ctx.strokeRect(dock.x + offsetX, dock.y + offsetY, CELL_SIZE, CELL_SIZE);
-    });
+    // Draw areas with their colors (new architecture)
+    if (areas.length > 0) {
+      areas.forEach((area) => {
+        ctx.fillStyle = area.color;
+        area.cells.forEach((cell) => {
+          ctx.fillRect(cell.x + offsetX, cell.y + offsetY, CELL_SIZE, CELL_SIZE);
+          ctx.strokeStyle = GRID_STROKE;
+          ctx.strokeRect(cell.x + offsetX, cell.y + offsetY, CELL_SIZE, CELL_SIZE);
+        });
+      });
+    } else {
+      // Fallback: Draw docks using legacy system (grey background)
+      docks.forEach((dock) => {
+        ctx.fillStyle = DOCK_FILL;
+        ctx.fillRect(dock.x + offsetX, dock.y + offsetY, CELL_SIZE, CELL_SIZE);
+        ctx.strokeStyle = GRID_STROKE;
+        ctx.strokeRect(dock.x + offsetX, dock.y + offsetY, CELL_SIZE, CELL_SIZE);
+      });
+    }
 
     // Draw current path
     if (currentPath.length >= 2) {
@@ -160,11 +240,20 @@ export function GridCanvas({ gridData, pallets, docks, currentPath }: GridCanvas
         PALLET_SIZE
       );
     });
-  }, [gridData, pallets, docks, currentPath]);
+
+    // Draw edit mode indicator (cursor highlight)
+    if (editMode?.isEditMode && editMode.target === 'areas') {
+      canvas.style.cursor = 'crosshair';
+    } else {
+      canvas.style.cursor = 'default';
+    }
+  }, [gridData, pallets, docks, currentPath, areas, editMode]);
 
   return (
     <canvas
       ref={canvasRef}
+      onClick={handleClick}
+      onMouseMove={handleMouseMove}
       style={{
         border: '1px solid #ccc',
         borderRadius: '4px',
