@@ -7,12 +7,13 @@ import {
   Point,
 } from '../types';
 import {
-  generatePath,
   getPositionAlongPath,
   getPathDuration,
   autoAssignActorsToDestinations,
   sortAssignmentsByDistance,
+  generatePathForActor,
   Assignment,
+  PathOverride,
 } from '../utils/pathfinding';
 
 // Animated actor state during simulation
@@ -29,6 +30,9 @@ export interface AnimatedActor {
   isMoving: boolean;
   hasArrived: boolean;
   path: Point[];
+  // Per-actor timing for parallel animation
+  pathDuration: number;
+  startTime: number;
 }
 
 export interface FlowSimulationState {
@@ -37,8 +41,11 @@ export interface FlowSimulationState {
   isComplete: boolean;
   elapsedMs: number;
   animatedActors: AnimatedActor[];
+  // Keep for backwards compatibility but now represents count of actors moving
   currentActorIndex: number;
+  // All active paths for visualization (parallel mode shows all moving actors' paths)
   currentPath: Point[];
+  activePaths: Point[][];
 }
 
 interface UseFlowSimulationResult {
@@ -66,6 +73,7 @@ export function useFlowSimulation(
     animatedActors: [],
     currentActorIndex: 0,
     currentPath: [],
+    activePaths: [],
   });
   const [speed, setSpeed] = useState(1);
 
@@ -73,52 +81,82 @@ export function useFlowSimulation(
   const animationFrameRef = useRef<number | null>(null);
   const isRunningRef = useRef(false);
   const startTimeRef = useRef<number>(0);
-  const actorStartTimeRef = useRef<number>(0);
-  const currentPathRef = useRef<Point[]>([]);
-  const pathDurationRef = useRef<number>(0);
-  const currentActorIndexRef = useRef(0);
   const animatedActorsRef = useRef<AnimatedActor[]>([]);
   const lastRenderTimeRef = useRef<number>(0);
   const speedRef = useRef(1);
+  const pausedElapsedRef = useRef<number>(0);
 
   // Keep speedRef in sync
   useEffect(() => {
     speedRef.current = speed;
   }, [speed]);
 
-  // Get the first active object-to-destination flow
-  const activeFlow = useMemo(() => {
-    return flows.find(
+  // Get ALL active object-to-destination flows
+  const activeFlows = useMemo(() => {
+    return flows.filter(
       (f): f is ObjectToDestinationFlow => f.flowType === 'object-to-destination'
     );
   }, [flows]);
 
-  // Calculate assignments when flow, actors, or areas change
+  // Collect all path overrides from all flows
+  const allPathOverrides = useMemo((): PathOverride[] => {
+    const overrides: PathOverride[] = [];
+    for (const flow of activeFlows) {
+      if (flow.pathOverrides) {
+        overrides.push(...flow.pathOverrides);
+      }
+    }
+    return overrides;
+  }, [activeFlows]);
+
+  // Calculate assignments for ALL flows
   const assignments = useMemo((): Assignment[] => {
-    if (!activeFlow) return [];
+    if (activeFlows.length === 0) return [];
 
-    // Get actors in this flow
-    const flowActors = actors.filter((a) => activeFlow.actorIds.includes(a.id));
-    if (flowActors.length === 0) return [];
+    const allAssignments: Assignment[] = [];
+    const usedActorIds = new Set<string>();
+    const usedDestinations = new Set<string>();
 
-    // Get destination area
-    const destinationArea = areas.find((a) => a.id === activeFlow.destinationAreaId);
-    if (!destinationArea || destinationArea.cells.length === 0) return [];
+    // Process each flow
+    for (const flow of activeFlows) {
+      // Get actors in this flow (skip if already assigned in another flow)
+      const flowActors = actors.filter(
+        (a) => flow.actorIds.includes(a.id) && !usedActorIds.has(a.id)
+      );
+      if (flowActors.length === 0) continue;
 
-    // Calculate auto-assignments
-    const actorPositions = flowActors.map((a) => ({
-      id: a.id,
-      position: a.startPosition,
-    }));
+      // Get destination area
+      const destinationArea = areas.find((a) => a.id === flow.destinationAreaId);
+      if (!destinationArea || destinationArea.cells.length === 0) continue;
 
-    const assigned = autoAssignActorsToDestinations(
-      actorPositions,
-      destinationArea.cells
-    );
+      // Filter out already-used destination cells
+      const availableCells = destinationArea.cells.filter(
+        (cell) => !usedDestinations.has(`${cell.x},${cell.y}`)
+      );
+      if (availableCells.length === 0) continue;
 
-    // Sort by distance (shortest first)
-    return sortAssignmentsByDistance(assigned);
-  }, [activeFlow, actors, areas]);
+      // Calculate auto-assignments for this flow
+      const actorPositions = flowActors.map((a) => ({
+        id: a.id,
+        position: a.startPosition,
+      }));
+
+      const flowAssignments = autoAssignActorsToDestinations(
+        actorPositions,
+        availableCells
+      );
+
+      // Track used actors and destinations
+      for (const assignment of flowAssignments) {
+        usedActorIds.add(assignment.actorId);
+        usedDestinations.add(`${assignment.destinationCell.x},${assignment.destinationCell.y}`);
+        allAssignments.push(assignment);
+      }
+    }
+
+    // Sort all assignments by distance (shortest first)
+    return sortAssignmentsByDistance(allAssignments);
+  }, [activeFlows, actors, areas]);
 
   // Initialize animated actors when assignments change
   useEffect(() => {
@@ -129,12 +167,19 @@ export function useFlowSimulation(
         animatedActors: [],
         currentActorIndex: 0,
         currentPath: [],
+        activePaths: [],
       }));
       return;
     }
 
     const animated: AnimatedActor[] = assignments.map((assignment) => {
       const actor = actors.find((a) => a.id === assignment.actorId);
+      const path = generatePathForActor(
+        assignment.actorId,
+        assignment.actorPosition,
+        assignment.destinationCell,
+        allPathOverrides
+      );
       return {
         id: assignment.actorId,
         type: actor?.type ?? 'pallet',
@@ -147,13 +192,14 @@ export function useFlowSimulation(
         targetY: assignment.destinationCell.y,
         isMoving: false,
         hasArrived: false,
-        path: generatePath(assignment.actorPosition, assignment.destinationCell),
+        path,
+        pathDuration: getPathDuration(path, speedRef.current),
+        startTime: 0,
       };
     });
 
     animatedActorsRef.current = animated;
-    currentActorIndexRef.current = 0;
-    currentPathRef.current = [];
+    pausedElapsedRef.current = 0;
 
     setState({
       isRunning: false,
@@ -163,70 +209,81 @@ export function useFlowSimulation(
       animatedActors: animated,
       currentActorIndex: 0,
       currentPath: [],
+      activePaths: [],
     });
-  }, [assignments, actors]);
+  }, [assignments, actors, allPathOverrides]);
 
   const animate = useCallback((timestamp: number) => {
     if (!isRunningRef.current) return;
 
     const elapsedMs = timestamp - startTimeRef.current;
-    const currentIndex = currentActorIndexRef.current;
     const animatedActors = animatedActorsRef.current;
+    const activePaths: Point[][] = [];
+    let allArrived = true;
+    let movingCount = 0;
+
+    // Update ALL actors in parallel
+    for (let i = 0; i < animatedActors.length; i++) {
+      const actor = animatedActors[i];
+
+      // Skip already arrived actors
+      if (actor.hasArrived) continue;
+
+      allArrived = false;
+
+      // Initialize start time if not moving yet
+      if (!actor.isMoving) {
+        animatedActors[i] = {
+          ...actor,
+          isMoving: true,
+          startTime: timestamp,
+          pathDuration: getPathDuration(actor.path, speedRef.current),
+        };
+      }
+
+      const currentActor = animatedActors[i];
+      const actorElapsed = timestamp - currentActor.startTime;
+      const progress = currentActor.pathDuration > 0
+        ? Math.min(actorElapsed / currentActor.pathDuration, 1)
+        : 1;
+
+      const position = getPositionAlongPath(currentActor.path, progress);
+
+      // Check if arrived
+      if (progress >= 1) {
+        animatedActors[i] = {
+          ...currentActor,
+          currentX: currentActor.targetX,
+          currentY: currentActor.targetY,
+          isMoving: false,
+          hasArrived: true,
+        };
+      } else {
+        animatedActors[i] = {
+          ...currentActor,
+          currentX: position.x,
+          currentY: position.y,
+        };
+        // Collect active paths for visualization
+        activePaths.push(currentActor.path);
+        movingCount++;
+      }
+    }
 
     // Check if all actors have arrived
-    if (currentIndex >= animatedActors.length) {
+    if (allArrived) {
       isRunningRef.current = false;
-      currentPathRef.current = [];
       setState({
         isRunning: false,
         isPaused: false,
         isComplete: true,
         elapsedMs,
         animatedActors: [...animatedActors],
-        currentActorIndex: currentIndex,
+        currentActorIndex: animatedActors.length,
         currentPath: [],
+        activePaths: [],
       });
       return;
-    }
-
-    const currentActor = animatedActors[currentIndex];
-
-    // Start moving if not already
-    if (!currentActor.isMoving) {
-      currentPathRef.current = currentActor.path;
-      pathDurationRef.current = getPathDuration(currentActor.path, speedRef.current);
-      actorStartTimeRef.current = timestamp;
-
-      animatedActors[currentIndex] = {
-        ...currentActor,
-        isMoving: true,
-      };
-    }
-
-    // Calculate position along path
-    const actorElapsed = timestamp - actorStartTimeRef.current;
-    const progress = pathDurationRef.current > 0
-      ? Math.min(actorElapsed / pathDurationRef.current, 1)
-      : 1;
-    const position = getPositionAlongPath(currentPathRef.current, progress);
-
-    animatedActors[currentIndex] = {
-      ...animatedActors[currentIndex],
-      currentX: position.x,
-      currentY: position.y,
-    };
-
-    // Check if arrived
-    if (progress >= 1) {
-      animatedActors[currentIndex] = {
-        ...animatedActors[currentIndex],
-        currentX: currentActor.targetX,
-        currentY: currentActor.targetY,
-        isMoving: false,
-        hasArrived: true,
-      };
-
-      currentActorIndexRef.current = currentIndex + 1;
     }
 
     // Throttle React state updates
@@ -238,8 +295,9 @@ export function useFlowSimulation(
         isComplete: false,
         elapsedMs,
         animatedActors: [...animatedActors],
-        currentActorIndex: currentActorIndexRef.current,
-        currentPath: [...currentPathRef.current],
+        currentActorIndex: movingCount,
+        currentPath: activePaths[0] ?? [],
+        activePaths,
       });
     }
 
@@ -249,10 +307,13 @@ export function useFlowSimulation(
   const start = useCallback(() => {
     if (isRunningRef.current) return;
     if (assignments.length === 0) return;
-    if (currentActorIndexRef.current >= animatedActorsRef.current.length) return;
+
+    // Check if already complete (all actors arrived)
+    const allArrived = animatedActorsRef.current.every((a) => a.hasArrived);
+    if (allArrived && animatedActorsRef.current.length > 0) return;
 
     isRunningRef.current = true;
-    startTimeRef.current = performance.now() - (state.elapsedMs || 0);
+    startTimeRef.current = performance.now() - pausedElapsedRef.current;
 
     setState((prev) => ({
       ...prev,
@@ -261,10 +322,11 @@ export function useFlowSimulation(
     }));
 
     animationFrameRef.current = requestAnimationFrame(animate);
-  }, [animate, assignments.length, state.elapsedMs]);
+  }, [animate, assignments.length]);
 
   const stop = useCallback(() => {
     isRunningRef.current = false;
+    pausedElapsedRef.current = performance.now() - startTimeRef.current;
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -280,6 +342,7 @@ export function useFlowSimulation(
 
   const reset = useCallback(() => {
     isRunningRef.current = false;
+    pausedElapsedRef.current = 0;
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -289,6 +352,12 @@ export function useFlowSimulation(
     // Reinitialize from assignments
     const animated: AnimatedActor[] = assignments.map((assignment) => {
       const actor = actors.find((a) => a.id === assignment.actorId);
+      const path = generatePathForActor(
+        assignment.actorId,
+        assignment.actorPosition,
+        assignment.destinationCell,
+        allPathOverrides
+      );
       return {
         id: assignment.actorId,
         type: actor?.type ?? 'pallet',
@@ -301,13 +370,13 @@ export function useFlowSimulation(
         targetY: assignment.destinationCell.y,
         isMoving: false,
         hasArrived: false,
-        path: generatePath(assignment.actorPosition, assignment.destinationCell),
+        path,
+        pathDuration: getPathDuration(path, speedRef.current),
+        startTime: 0,
       };
     });
 
     animatedActorsRef.current = animated;
-    currentActorIndexRef.current = 0;
-    currentPathRef.current = [];
 
     setState({
       isRunning: false,
@@ -317,8 +386,9 @@ export function useFlowSimulation(
       animatedActors: animated,
       currentActorIndex: 0,
       currentPath: [],
+      activePaths: [],
     });
-  }, [assignments, actors]);
+  }, [assignments, actors, allPathOverrides]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -333,7 +403,7 @@ export function useFlowSimulation(
   return {
     state,
     speed,
-    hasActiveFlow: activeFlow !== undefined && assignments.length > 0,
+    hasActiveFlow: activeFlows.length > 0 && assignments.length > 0,
     start,
     stop,
     reset,

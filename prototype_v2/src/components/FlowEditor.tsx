@@ -16,6 +16,23 @@ interface FlowEditorProps {
   onDeleteFlow: (flowId: string) => void;
 }
 
+// Flow colors for visual distinction
+const FLOW_COLORS = [
+  '#228be6', // blue
+  '#40c057', // green
+  '#fab005', // yellow
+  '#fa5252', // red
+  '#7950f2', // purple
+  '#20c997', // teal
+  '#fd7e14', // orange
+  '#e64980', // pink
+];
+
+// Get flow color based on index
+function getFlowColor(index: number): string {
+  return FLOW_COLORS[index % FLOW_COLORS.length];
+}
+
 // Generate unique flow ID
 function generateFlowId(): string {
   return `flow-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -114,46 +131,65 @@ export function FlowEditor({
       {flows.length > 0 && (
         <div style={{ marginBottom: '16px' }}>
           <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#868e96' }}>
-            Defined Flows
+            Active Flows ({flows.length})
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {flows.map((flow) => (
-              <div
-                key={flow.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '8px 12px',
-                  backgroundColor: '#fff',
-                  borderRadius: '4px',
-                  border: '1px solid #dee2e6',
-                }}
-              >
-                <div>
-                  <span style={{ fontWeight: 500 }}>{flow.name}</span>
-                  <span style={{ color: '#868e96', marginLeft: '8px', fontSize: '12px' }}>
-                    {flow.flowType === 'object-to-destination'
-                      ? `${flow.actorIds.length} actors → ${getAreaLabel(flow.destinationAreaId)}`
-                      : `Route with ${flow.waypoints.length} stops`}
-                  </span>
-                </div>
-                <button
-                  onClick={() => onDeleteFlow(flow.id)}
+            {flows.map((flow, index) => {
+              const flowColor = getFlowColor(index);
+              return (
+                <div
+                  key={flow.id}
                   style={{
-                    padding: '4px 8px',
-                    fontSize: '12px',
-                    backgroundColor: '#fa5252',
-                    color: 'white',
-                    border: 'none',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    backgroundColor: '#fff',
                     borderRadius: '4px',
-                    cursor: 'pointer',
+                    border: `2px solid ${flowColor}`,
+                    borderLeft: `4px solid ${flowColor}`,
                   }}
                 >
-                  Delete
-                </button>
-              </div>
-            ))}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Color indicator */}
+                    <div
+                      style={{
+                        width: '12px',
+                        height: '12px',
+                        borderRadius: '50%',
+                        backgroundColor: flowColor,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div>
+                      <span style={{ fontWeight: 500, color: '#343a40' }}>{flow.name}</span>
+                      <div style={{ color: '#868e96', fontSize: '12px', marginTop: '2px' }}>
+                        {flow.flowType === 'object-to-destination'
+                          ? `${flow.actorIds.length} actors → ${getAreaLabel(flow.destinationAreaId)}`
+                          : `Route with ${flow.waypoints.length} stops`}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                      onClick={() => onDeleteFlow(flow.id)}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '12px',
+                        backgroundColor: '#fa5252',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                      }}
+                      title="Delete flow"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

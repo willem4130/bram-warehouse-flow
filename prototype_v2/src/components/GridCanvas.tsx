@@ -27,7 +27,6 @@ const DOCK_FILL = '#e9ecef';
 const PALLET_FILL = '#d2bab0';
 const PALLET_STROKE = '#a89080';
 const BACKGROUND = '#ffffff';
-const PATH_STROKE = '#4dabf7';
 const ACTOR_STROKE = '#495057';
 
 interface GridCanvasProps {
@@ -35,6 +34,8 @@ interface GridCanvasProps {
   pallets: Pallet[];
   docks: Dock[];
   currentPath: Point[];
+  // Parallel animation: all active paths
+  activePaths?: Point[][];
   // New props for edit mode
   areas?: Area[];
   actors?: Actor[];
@@ -49,6 +50,7 @@ export function GridCanvas({
   pallets,
   docks,
   currentPath,
+  activePaths = [],
   areas = [],
   actors = [],
   animatedActors = [],
@@ -198,27 +200,36 @@ export function GridCanvas({
       });
     }
 
-    // Draw current path
-    if (currentPath.length >= 2) {
-      ctx.strokeStyle = PATH_STROKE;
-      ctx.lineWidth = 3;
+    // Draw all active paths (parallel animation)
+    const pathsToDraw = activePaths.length > 0 ? activePaths : (currentPath.length >= 2 ? [currentPath] : []);
+
+    if (pathsToDraw.length > 0) {
+      ctx.lineWidth = 2;
       ctx.setLineDash([8, 4]);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-
-      ctx.beginPath();
       const centerOffset = CELL_SIZE / 2;
-      ctx.moveTo(
-        currentPath[0].x + offsetX + centerOffset,
-        currentPath[0].y + offsetY + centerOffset
-      );
-      for (let i = 1; i < currentPath.length; i++) {
-        ctx.lineTo(
-          currentPath[i].x + offsetX + centerOffset,
-          currentPath[i].y + offsetY + centerOffset
+
+      pathsToDraw.forEach((path) => {
+        if (path.length < 2) return;
+
+        // Vary opacity for multiple paths to distinguish them
+        const opacity = pathsToDraw.length === 1 ? 1 : 0.6;
+        ctx.strokeStyle = `rgba(77, 171, 247, ${opacity})`;
+
+        ctx.beginPath();
+        ctx.moveTo(
+          path[0].x + offsetX + centerOffset,
+          path[0].y + offsetY + centerOffset
         );
-      }
-      ctx.stroke();
+        for (let i = 1; i < path.length; i++) {
+          ctx.lineTo(
+            path[i].x + offsetX + centerOffset,
+            path[i].y + offsetY + centerOffset
+          );
+        }
+        ctx.stroke();
+      });
 
       // Reset line style
       ctx.setLineDash([]);
@@ -395,7 +406,7 @@ export function GridCanvas({
     } else {
       canvas.style.cursor = 'default';
     }
-  }, [gridData, pallets, docks, currentPath, areas, actors, animatedActors, editMode]);
+  }, [gridData, pallets, docks, currentPath, activePaths, areas, actors, animatedActors, editMode]);
 
   return (
     <canvas

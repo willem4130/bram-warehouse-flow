@@ -209,3 +209,60 @@ export function generatePathsForAssignments(
     path: generatePath(assignment.actorPosition, assignment.destinationCell),
   }));
 }
+
+/**
+ * Path override for custom waypoints
+ */
+export interface PathOverride {
+  actorId: string;
+  waypoints: Point[];
+}
+
+/**
+ * Generate path using custom waypoints
+ * Creates Manhattan segments between each waypoint
+ */
+export function generatePathWithWaypoints(
+  start: Point,
+  waypoints: Point[],
+  end: Point
+): Point[] {
+  const path: Point[] = [{ ...start }];
+  const allPoints = [...waypoints, end];
+
+  let current = start;
+  for (const target of allPoints) {
+    // Skip if same position
+    if (current.x === target.x && current.y === target.y) continue;
+
+    // Add Manhattan path segment (excluding start since it's already added)
+    const segment = generatePath(current, target);
+    // Skip first point of segment (it's the same as current/last added)
+    for (let i = 1; i < segment.length; i++) {
+      path.push(segment[i]);
+    }
+    current = target;
+  }
+
+  return path;
+}
+
+/**
+ * Generate path considering optional path overrides
+ */
+export function generatePathForActor(
+  actorId: string,
+  start: Point,
+  end: Point,
+  pathOverrides?: PathOverride[]
+): Point[] {
+  // Check if there's a custom path for this actor
+  const override = pathOverrides?.find((p) => p.actorId === actorId);
+
+  if (override && override.waypoints.length > 0) {
+    return generatePathWithWaypoints(start, override.waypoints, end);
+  }
+
+  // Default Manhattan path
+  return generatePath(start, end);
+}

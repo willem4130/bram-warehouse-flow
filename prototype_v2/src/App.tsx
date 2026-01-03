@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { GridCanvas } from './components/GridCanvas';
 import { Controls } from './components/Controls';
 import { FlowEditor } from './components/FlowEditor';
+import { ComparisonView } from './components/ComparisonView';
 import { useSimulation } from './hooks/useSimulation';
 import { useFlowSimulation } from './hooks/useFlowSimulation';
 import { useHistory, createHistoryState } from './hooks/useHistory';
 import { loadExcalidrawFile, loadExcalidrawToScenario } from './utils/parseExcalidraw';
 import { assignCellToAreaType } from './utils/areaManager';
 import { toggleActorAtPosition } from './utils/actorManager';
+import { downloadScenario, uploadScenario } from './utils/scenarioIO';
 import { GridData, Area, Actor, Flow, EditModeState, EditTarget, AreaType, ActorType, Point } from './types';
 import './App.css';
 
@@ -36,6 +38,11 @@ function App() {
   const [actors, setActors] = useState<Actor[]>([]);
   const [flows, setFlows] = useState<Flow[]>([]);
   const [editMode, setEditMode] = useState<EditModeState>(defaultEditMode);
+
+  // Comparison mode state
+  const [comparisonMode, setComparisonMode] = useState(false);
+  const [viewAFlowIds, setViewAFlowIds] = useState<string[]>([]);
+  const [viewBFlowIds, setViewBFlowIds] = useState<string[]>([]);
 
   // History management
   const history = useHistory();
@@ -250,7 +257,68 @@ function App() {
   // Delete a flow
   const handleDeleteFlow = useCallback((flowId: string) => {
     setFlows((prevFlows) => prevFlows.filter((f) => f.id !== flowId));
+    // Also remove from comparison views
+    setViewAFlowIds((prev) => prev.filter((id) => id !== flowId));
+    setViewBFlowIds((prev) => prev.filter((id) => id !== flowId));
   }, []);
+
+  // Toggle comparison mode
+  const handleComparisonModeToggle = useCallback(() => {
+    setComparisonMode((prev) => {
+      if (!prev && flows.length > 0) {
+        // Entering comparison mode - assign all flows to view A by default
+        setViewAFlowIds(flows.map((f) => f.id));
+        setViewBFlowIds([]);
+      }
+      return !prev;
+    });
+  }, [flows]);
+
+  // Toggle flow assignment to a view
+  const handleToggleFlowInView = useCallback((flowId: string, view: 'A' | 'B') => {
+    if (view === 'A') {
+      setViewAFlowIds((prev) =>
+        prev.includes(flowId) ? prev.filter((id) => id !== flowId) : [...prev, flowId]
+      );
+    } else {
+      setViewBFlowIds((prev) =>
+        prev.includes(flowId) ? prev.filter((id) => id !== flowId) : [...prev, flowId]
+      );
+    }
+  }, []);
+
+  // Export scenario
+  const handleExportScenario = useCallback(() => {
+    const name = prompt('Enter scenario name:', 'Warehouse Flow Scenario');
+    if (!name) return;
+
+    downloadScenario(
+      name,
+      areas,
+      actors,
+      flows,
+      gridData?.bounds
+    );
+  }, [areas, actors, flows, gridData]);
+
+  // Import scenario
+  const handleImportScenario = useCallback(async () => {
+    const scenario = await uploadScenario();
+    if (!scenario) {
+      alert('Failed to import scenario. Please check the file format.');
+      return;
+    }
+
+    // Apply imported data
+    setAreas(scenario.areas);
+    setActors(scenario.actors);
+    setFlows(scenario.flows);
+
+    // Reset history with new state
+    history.reset(createHistoryState(scenario.areas, scenario.actors, [], []));
+
+    alert(`Imported scenario: ${scenario.name}`);
+  }, [history]);
 
   // Keyboard shortcuts for undo/redo/delete
   useEffect(() => {
@@ -350,34 +418,185 @@ function App() {
               Edit Mode
             </span>
           )}
+          {comparisonMode && (
+            <span style={{ color: '#7950f2', marginLeft: '8px', fontWeight: 500 }}>
+              Comparison Mode
+            </span>
+          )}
+        </div>
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {/* Comparison mode toggle - only show when flows exist and not editing */}
+          {!editMode.isEditMode && flows.length >= 1 && !comparisonMode && (
+            <button
+              onClick={handleComparisonModeToggle}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#7950f2',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '13px',
+              }}
+            >
+              ⚖ Compare
+            </button>
+          )}
+
+          {/* Export button */}
+          <button
+            onClick={handleExportScenario}
+            disabled={areas.length === 0 && actors.length === 0}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: areas.length === 0 && actors.length === 0 ? '#ccc' : '#20c997',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: areas.length === 0 && actors.length === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '13px',
+            }}
+            title="Export scenario to JSON"
+          >
+            ↓ Export
+          </button>
+
+          {/* Import button */}
+          <button
+            onClick={handleImportScenario}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: '#228be6',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '13px',
+            }}
+            title="Import scenario from JSON"
+          >
+            ↑ Import
+          </button>
         </div>
       </header>
 
       <main className="main" style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
-        <GridCanvas
-          gridData={gridData}
-          pallets={legacySimulation.state.pallets}
-          docks={legacySimulation.state.docks}
-          currentPath={useFlowBased ? flowSimulation.state.currentPath : legacySimulation.state.currentPath}
-          areas={areas}
-          actors={actors}
-          animatedActors={flowSimulation.state.animatedActors}
-          editMode={editMode}
-          onCellClick={handleCellClick}
-          onActorClick={handleActorClick}
-        />
-
-        {/* Flow Editor sidebar - visible in edit mode */}
-        {editMode.isEditMode && (
-          <div style={{ width: '320px', flexShrink: 0 }}>
-            <FlowEditor
-              actors={actors}
+        {comparisonMode ? (
+          /* Comparison Mode View */
+          <div style={{ display: 'flex', gap: '16px', flexDirection: 'column' }}>
+            {/* Flow assignment controls */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '16px',
+                padding: '12px',
+                backgroundColor: '#f8f9fa',
+                borderRadius: '8px',
+                border: '1px solid #dee2e6',
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <h4 style={{ margin: '0 0 8px', color: '#228be6' }}>View A (Current)</h4>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {flows.map((flow) => (
+                    <button
+                      key={flow.id}
+                      onClick={() => handleToggleFlowInView(flow.id, 'A')}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '12px',
+                        backgroundColor: viewAFlowIds.includes(flow.id) ? '#228be6' : '#e9ecef',
+                        color: viewAFlowIds.includes(flow.id) ? 'white' : '#495057',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {flow.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <h4 style={{ margin: '0 0 8px', color: '#e67700' }}>View B (Proposed)</h4>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {flows.map((flow) => (
+                    <button
+                      key={flow.id}
+                      onClick={() => handleToggleFlowInView(flow.id, 'B')}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '12px',
+                        backgroundColor: viewBFlowIds.includes(flow.id) ? '#fab005' : '#e9ecef',
+                        color: viewBFlowIds.includes(flow.id) ? 'white' : '#495057',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {flow.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={handleComparisonModeToggle}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#868e96',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  alignSelf: 'flex-start',
+                }}
+              >
+                Exit Comparison
+              </button>
+            </div>
+            <ComparisonView
+              gridData={gridData}
               areas={areas}
-              flows={flows}
-              onCreateFlow={handleCreateFlow}
-              onDeleteFlow={handleDeleteFlow}
+              actors={actors}
+              viewAName="Current State"
+              viewAFlows={flows.filter((f) => viewAFlowIds.includes(f.id))}
+              viewBName="Proposed"
+              viewBFlows={flows.filter((f) => viewBFlowIds.includes(f.id))}
+              speed={speed}
+              onSpeedChange={setSpeed}
             />
           </div>
+        ) : (
+          /* Normal View */
+          <>
+            <GridCanvas
+              gridData={gridData}
+              pallets={legacySimulation.state.pallets}
+              docks={legacySimulation.state.docks}
+              currentPath={useFlowBased ? flowSimulation.state.currentPath : legacySimulation.state.currentPath}
+              activePaths={useFlowBased ? flowSimulation.state.activePaths : []}
+              areas={areas}
+              actors={actors}
+              animatedActors={flowSimulation.state.animatedActors}
+              editMode={editMode}
+              onCellClick={handleCellClick}
+              onActorClick={handleActorClick}
+            />
+
+            {/* Flow Editor sidebar - visible in edit mode */}
+            {editMode.isEditMode && (
+              <div style={{ width: '320px', flexShrink: 0 }}>
+                <FlowEditor
+                  actors={actors}
+                  areas={areas}
+                  flows={flows}
+                  onCreateFlow={handleCreateFlow}
+                  onDeleteFlow={handleDeleteFlow}
+                />
+              </div>
+            )}
+          </>
         )}
       </main>
 
