@@ -2,11 +2,13 @@ import { useRef, useEffect } from 'react';
 import { GridData, Pallet, Dock } from '../types';
 
 const CELL_SIZE = 40;
-const PALLET_SIZE = 36;
+const PALLET_SIZE = 30;
 const PALLET_OFFSET = (CELL_SIZE - PALLET_SIZE) / 2;
+const COORD_MARGIN = 30; // Space for coordinate labels
 
 // Colors
 const GRID_STROKE = '#ced4da';
+const COORD_COLOR = '#ced4da';
 const DOCK_FILL = '#e9ecef';
 const PALLET_FILL = '#d2bab0';
 const PALLET_STROKE = '#a89080';
@@ -31,8 +33,8 @@ export function GridCanvas({ gridData, pallets, docks }: GridCanvasProps) {
     // Calculate canvas size from grid bounds
     const { bounds } = gridData;
     const padding = 20;
-    const width = bounds.maxX - bounds.minX + padding * 2;
-    const height = bounds.maxY - bounds.minY + padding * 2;
+    const width = bounds.maxX - bounds.minX + padding * 2 + COORD_MARGIN;
+    const height = bounds.maxY - bounds.minY + padding * 2 + COORD_MARGIN;
 
     canvas.width = width;
     canvas.height = height;
@@ -41,9 +43,34 @@ export function GridCanvas({ gridData, pallets, docks }: GridCanvasProps) {
     ctx.fillStyle = BACKGROUND;
     ctx.fillRect(0, 0, width, height);
 
-    // Offset for drawing (translate grid to start at padding)
-    const offsetX = padding - bounds.minX;
-    const offsetY = padding - bounds.minY;
+    // Offset for drawing (translate grid to start at padding + margin for labels)
+    const offsetX = padding - bounds.minX + COORD_MARGIN;
+    const offsetY = padding - bounds.minY + COORD_MARGIN;
+
+    // Calculate grid dimensions in cells
+    const gridWidthCells = Math.round((bounds.maxX - bounds.minX) / CELL_SIZE);
+    const gridHeightCells = Math.round((bounds.maxY - bounds.minY) / CELL_SIZE);
+
+    // Draw coordinate labels
+    ctx.fillStyle = COORD_COLOR;
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Horizontal letters (A, B, C, ...) at the top - columns
+    for (let i = 0; i < gridWidthCells; i++) {
+      const x = bounds.minX + i * CELL_SIZE + CELL_SIZE / 2 + offsetX;
+      const y = padding / 2 + COORD_MARGIN / 2;
+      const letter = String.fromCharCode(65 + i); // A=65
+      ctx.fillText(letter, x, y);
+    }
+
+    // Vertical numbers (1, 2, 3, ...) on the left - rows
+    for (let i = 0; i < gridHeightCells; i++) {
+      const x = padding / 2 + COORD_MARGIN / 2;
+      const y = bounds.minY + i * CELL_SIZE + CELL_SIZE / 2 + offsetY;
+      ctx.fillText((i + 1).toString(), x, y);
+    }
 
     // Draw empty cells
     ctx.strokeStyle = GRID_STROKE;
@@ -97,14 +124,12 @@ export function GridCanvas({ gridData, pallets, docks }: GridCanvasProps) {
         PALLET_SIZE
       );
       ctx.strokeStyle = PALLET_STROKE;
-      ctx.lineWidth = 2;
       ctx.strokeRect(
         pallet.x + offsetX + PALLET_OFFSET,
         pallet.y + offsetY + PALLET_OFFSET,
         PALLET_SIZE,
         PALLET_SIZE
       );
-      ctx.lineWidth = 1;
     });
   }, [gridData, pallets, docks]);
 
